@@ -20,7 +20,7 @@
                  (target-set g-letter)
                  {:in-word g-letter}
                  :else
-                 nil))
+                 {:not-in-word g-letter}))
          target-word guess)))
 
 (defn win?
@@ -49,7 +49,7 @@
           [nil nil nil nil nil]
           matches))))
 
-(defn aggregate-letter-match-set
+(defn letter-match-set
   [matches]
   (->> matches
        (mapcat (fn [m]
@@ -63,8 +63,54 @@
   (if (not (seq matches))
     (constantly false)
 
-    (let [match-set (aggregate-letter-match-set matches)]
+    (let [match-set (letter-match-set matches)]
       (fn [word]
         (let [word-set (set word)]
-          (set/subset? match-set word-set))))))
+          (when (set/subset? match-set word-set)
+            word))))))
+(comment
+  ((letter-in-word-predicate [(compare-words "solar" "power")
+                              (compare-words "solar" "eeeee")])
+   "aaaaa")
+  ((letter-in-word-predicate [(compare-words "solar" "power")
+                              (compare-words "solar" "eeeee")])
+   "orser"))
 
+
+(defn non-matching-letters-set
+  [matches]
+  (->> matches
+       (mapcat (fn [m] (keep :not-in-word m)))
+       set))
+(non-matching-letters-set  [(compare-words "solar" "power") (compare-words "solar" "eeeee")])
+
+(defn letters-not-excluded-predicate
+  [matches]
+  (if (not (seq matches))
+    (constantly false)
+
+    (let [not-in-word-set (non-matching-letters-set matches)]
+      (fn [word]
+        (let [word-set (set word)]
+          (when (empty? (set/intersection not-in-word-set word-set))
+            word))))))
+
+(comment
+  ((letters-not-excluded-predicate [(compare-words "solar" "power")
+                                    (compare-words "solar" "eeeee")])
+   "ooooo") ;; => true, because o is not excluded
+  ((letters-not-excluded-predicate [(compare-words "solar" "power")
+                                    (compare-words "solar" "eeeee")])
+   "eeeee")) ;; => false, because e is excluded
+
+(keep (exact-match-predicate [(compare-words "solar" "power")]) z)
+
+(defn triple-predicate
+  [matches]
+  (let [perfect-match? (exact-match-predicate matches)
+        letter-match? (letter-in-word-predicate matches)
+        letters-not-excluded? (letters-not-excluded-predicate matches)]
+    (fn [word]
+      (and (perfect-match? word)
+           (letter-match? word)
+           (letters-not-excluded? word)))))
