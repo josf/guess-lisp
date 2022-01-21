@@ -49,6 +49,32 @@
           [nil nil nil nil nil]
           matches))))
 
+
+(defn exclusions-per-position
+  [matches]
+  (reduce
+    (fn [m1 m2]
+      (map (fn [pos-m1 pos-m2]
+             (if-let [in-word-letter (:in-word pos-m2)]
+               (conj pos-m1 in-word-letter)
+               pos-m1))
+           m1 m2))
+    [#{} #{} #{} #{} #{}]
+    matches))
+
+(defn exclude-in-word-perfect-matches-predicate
+  [matches]
+  (let [exclusions (exclusions-per-position matches)]
+    (fn [word]
+      (when (every? identity
+                  (map
+                    ;; true = ok, letters don't match, means this pair does not exclude anything
+                    ;; false = oops, match, so this pair means the word doesn't match
+                   (fn [letter excl-set] (not (excl-set letter)))
+                   word
+                   exclusions))
+        word))))
+
 (defn letter-match-set
   [matches]
   (->> matches
@@ -76,13 +102,13 @@
                               (compare-words "solar" "eeeee")])
    "orser"))
 
-
 (defn non-matching-letters-set
   [matches]
   (->> matches
        (mapcat (fn [m] (keep :not-in-word m)))
        set))
-(non-matching-letters-set  [(compare-words "solar" "power") (compare-words "solar" "eeeee")])
+(comment
+  (non-matching-letters-set  [(compare-words "solar" "power") (compare-words "solar" "eeeee")]))
 
 (defn letters-not-excluded-predicate
   [matches]
@@ -103,14 +129,36 @@
                                     (compare-words "solar" "eeeee")])
    "eeeee")) ;; => false, because e is excluded
 
-(keep (exact-match-predicate [(compare-words "solar" "power")]) z)
+(comment
+  (keep (exact-match-predicate [(compare-words "solar" "power")]) z))
 
-(defn triple-predicate
+
+
+(defn multi-predicate
   [matches]
   (let [perfect-match? (exact-match-predicate matches)
+        in-words-are-not-perfect-match? (exclude-in-word-perfect-matches-predicate matches)
         letter-match? (letter-in-word-predicate matches)
         letters-not-excluded? (letters-not-excluded-predicate matches)]
     (fn [word]
-      (and (perfect-match? word)
+      (and
+        (perfect-match? word)
+           (in-words-are-not-perfect-match? word)
            (letter-match? word)
            (letters-not-excluded? word)))))
+
+(comment
+  (keep
+   (multi-predicate [[{:correct \s} {:not-in-word \t} {:in-word \e} {:not-in-word \a} {:not-in-word \m}]
+                     [{:in-word \r} {:not-in-word \o} {:not-in-word \u} {:not-in-word \n} {:not-in-word \d}]
+                     [{:not-in-word \l} {:in-word \i} {:not-in-word \v} {:in-word \e} {:in-word \r}]
+                     [{:correct \s} {:in-word \e} {:in-word \r} {:in-word \i} {:not-in-word \f}]]) z)
+  ;; =>   ("shire" "spire")
+
+
+   (keep
+     (multi-predicate [[{:not-in-word \s} {:in-word \t} {:not-in-word \e} {:not-in-word \a} {:not-in-word \m}]
+                       [{:correct \r} {:correct \o} {:not-in-word \u} {:not-in-word \n} {:not-in-word \d}]])
+    z)
+   ;; => ("robot" "rotor")
+   )
