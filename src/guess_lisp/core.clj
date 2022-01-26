@@ -23,129 +23,70 @@
                  {:not-in-word g-letter}))
          target-word guess)))
 
-(defn win?
-  [match]
-  (every? :correct match))
+(defn remove-exact-matches-from-exclusions
+  "If the guess includes the same letter twice, and only one is present
+  in the target word, and one of the guesses is a perfect match, the
+  other will be displayed grey, as `not-in-word`. We don't want this
+  to cause a miss when comparing sets, so we remove those from the
+  word-level `:excluded` set."
+  [{:keys [letters] :as accumulated-matches}]
+  (let [matched-letters (set (keep :match letters))]
+    (update accumulated-matches :excluded set/difference matched-letters)))
 
-
-(defn chars->pred
-  [chars]
-  (fn [word]
-    (when (every? identity
-                  (map (fn [w c]
-                         (or (not c)
-                             (= c w)))
-                       word chars))
-      word)))
-
-(defn exact-match-predicate
-  [matches]
-  (if (zero? (count matches))
-        (constantly false)
-        (chars->pred
-         (reduce
-          (fn [m1 m2]
-            (map (fn [l1 l2] (some :correct [l1 l2])) m1 m2))
-          [nil nil nil nil nil]
-          matches))))
-
-
-(defn exclusions-per-position
+(defn omni-pred-data
   [matches]
   (reduce
-    (fn [m1 m2]
-      (map (fn [pos-m1 pos-m2]
-             (if-let [in-word-letter (:in-word pos-m2)]
-               (conj pos-m1 in-word-letter)
-               pos-m1))
-           m1 m2))
-    [#{} #{} #{} #{} #{}]
+    (fn [acc m]
+      (-> acc
+          (update :excluded (fn [x] (set/union x (set (keep :not-in-word m)))))
+          (update :required (fn [r] (set/union r (set (keep :in-word m)))))
+          (update :letters (fn [ls]
+                             (map
+                               (fn [l {:keys [in-word correct]}]
+                                 (cond correct
+                                       (assoc l :match correct)
+
+                                       in-word
+                                       (update l :excluded conj in-word)
+
+                                       :else
+                                       l))
+                               ls m)))
+          remove-exact-matches-from-exclusions))
+    {:excluded #{}
+     :required #{}
+     :letters [{:excluded #{}}
+               {:excluded #{}}
+               {:excluded #{}}
+               {:excluded #{}}
+               {:excluded #{}}]}
     matches))
 
-(defn exclude-in-word-perfect-matches-predicate
-  [matches]
-  (let [exclusions (exclusions-per-position matches)]
-    (fn [word]
-      (when (every? identity
-                  (map
-                    ;; true = ok, letters don't match, means this pair does not exclude anything
-                    ;; false = oops, match, so this pair means the word doesn't match
-                   (fn [letter excl-set] (not (excl-set letter)))
-                   word
-                   exclusions))
-        word))))
+(defn omni-pred
+  [{:keys [excluded required letters]}]
+  (fn [word]
+    (let [word-letter-set (set word)]
+      (cond (seq (set/intersection word-letter-set excluded))
+            nil
 
-(defn letter-match-set
-  [matches]
-  (->> matches
-       (mapcat (fn [m]
-                 (keep (fn [m-item]
-                         (or (:correct m-item)
-                             (:in-word m-item))) m)))
-       set))
+            (seq (set/difference required word-letter-set))
+            nil
 
-(defn letter-in-word-predicate
-  [matches]
-  (if (not (seq matches))
-    (constantly false)
-
-    (let [match-set (letter-match-set matches)]
-      (fn [word]
-        (let [word-set (set word)]
-          (when (set/subset? match-set word-set)
-            word))))))
-(comment
-  ((letter-in-word-predicate [(compare-words "solar" "power")
-                              (compare-words "solar" "eeeee")])
-   "aaaaa")
-  ((letter-in-word-predicate [(compare-words "solar" "power")
-                              (compare-words "solar" "eeeee")])
-   "orser"))
-
-(defn non-matching-letters-set
-  [matches]
-  (->> matches
-       (mapcat (fn [m] (keep :not-in-word m)))
-       set))
-(comment
-  (non-matching-letters-set  [(compare-words "solar" "power") (compare-words "solar" "eeeee")]))
-
-(defn letters-not-excluded-predicate
-  [matches]
-  (if (not (seq matches))
-    (constantly false)
-
-    (let [not-in-word-set (non-matching-letters-set matches)]
-      (fn [word]
-        (let [word-set (set word)]
-          (when (empty? (set/intersection not-in-word-set word-set))
-            word))))))
-
-(comment
-  ((letters-not-excluded-predicate [(compare-words "solar" "power")
-                                    (compare-words "solar" "eeeee")])
-   "ooooo") ;; => true, because o is not excluded
-  ((letters-not-excluded-predicate [(compare-words "solar" "power")
-                                    (compare-words "solar" "eeeee")])
-   "eeeee")) ;; => false, because e is excluded
-
-(comment
-  (keep (exact-match-predicate [(compare-words "solar" "power")]) z))
-
-
-
-(defn multi-predicate
-  [matches]
-  (let [perfect-match? (exact-match-predicate matches)
-        in-words-are-not-perfect-match? (exclude-in-word-perfect-matches-predicate matches)
-        letter-match? (letter-in-word-predicate matches)
-        letters-not-excluded? (letters-not-excluded-predicate matches)]
-    (fn [word]
-      (and
-        (perfect-match? word)
-           (in-words-are-not-perfect-match? word)
-           (letter-match? word)
-           (letters-not-excluded? word)))))
+            (not (every? identity (map (fn [{:keys [match excluded]} w-l]
+                                         (cond (and match (= match w-l))
+                                               true
+                                               (and match (not= match w-l))
+                                               false
+                                               (excluded w-l)
+                                               false
+                                               :else
+                                               true))
+                                       letters
+                                       word)))
+            nil
+            
+            :else
+            word))))
 
 (comment
   (keep
