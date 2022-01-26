@@ -34,6 +34,8 @@
     (update accumulated-matches :excluded set/difference matched-letters)))
 
 (defn omni-pred-data
+  "Builds up the filtering data necessary for `omni-pred`. See that
+  function for an explanation."
   [matches]
   (reduce
     (fn [acc m]
@@ -63,6 +65,19 @@
     matches))
 
 (defn omni-pred
+  "A single predicate that applies all the information gathered by
+  `omni-pred-data` and filters the list of words.
+
+  There are two strategies here:
+
+  On the whole-word level, we use eliminated letters (gray in Wordle)
+  and in-word (but in wrong position) letters to exclude words that
+  either contain or don't contain the letters in those two sets.
+
+  At the letter-position level, we either detect a perfect match, or
+  accumulate exclusions. These letter-level exclusions correpond to
+  the in-word letters, so this is the inference that the letter in
+  question is in the word, but not in *this* position."
   [{:keys [excluded required letters]}]
   (fn [word]
     (let [word-letter-set (set word)]
@@ -88,28 +103,17 @@
             :else
             word))))
 
-(comment
-  (keep
-   (multi-predicate [[{:correct \s} {:not-in-word \t} {:in-word \e} {:not-in-word \a} {:not-in-word \m}]
-                     [{:in-word \r} {:not-in-word \o} {:not-in-word \u} {:not-in-word \n} {:not-in-word \d}]
-                     [{:not-in-word \l} {:in-word \i} {:not-in-word \v} {:in-word \e} {:in-word \r}]
-                     [{:correct \s} {:in-word \e} {:in-word \r} {:in-word \i} {:not-in-word \f}]]) z)
-  ;; =>   ("shire" "spire")
-
-
-   (keep
-     (multi-predicate [[{:not-in-word \s} {:in-word \t} {:not-in-word \e} {:not-in-word \a} {:not-in-word \m}]
-                       [{:correct \r} {:correct \o} {:not-in-word \u} {:not-in-word \n} {:not-in-word \d}]])
-    z)
-   ;; => ("robot" "rotor")
-   )
-
-
 (defn letter-frequencies-by-position
+  "For a given letter position, returns a map where the keys are the
+  letters of the alphabet and the values are their frequencies in the
+  list of words provided."
   [words position]
   (frequencies (map #(nth % position) words)))
 
 (defn- deduped-word-score
+  "Words that have repeated letters that occur frequently end up with
+  higher scores, while they don't provide data that is as good as
+  words with only singleton letters."
   [word freqs]
   (apply +
          (vals
@@ -120,6 +124,17 @@
              (map vector word freqs)))))
 
 (defn ranked-guesses
+  "Based on a list of words, scores each word by the frequency of each
+  of its letters at their respective positions. (If there are more 's'
+  at position 2 than at position 3, the letter will have a higher
+  score if it's in position 2.)
+
+  This appears to be a decent strategy if the guesses are recalculated
+  after every failed guess, on the remaing words.
+
+  The strategy here is to always select the most probable match. This
+  has the best chances of matching, and on failure eliminates the most
+  possible words, providing better information for the next guess."
   [words]
   (let [freqs (map (partial letter-frequencies-by-position words) (range 5))]
     (->> words
@@ -132,6 +147,7 @@
 
 
 (defn simulate
+  "Runs a simulated game."
   [target-word words matches guess-count]
   (let [filtered-words (keep (omni-pred (omni-pred-data matches)) words)
         ranked (ranked-guesses filtered-words)]
@@ -163,43 +179,40 @@
 
 
 (comment
+  (ranked-guesses (keep (omni-pred
+                         (omni-pred-data
+                          [[{:not-in-word \s}
+                            {:in-word \o}
+                            {:not-in-word \r}
+                            {:not-in-word \e}
+                            {:not-in-word \s}]
+                           [{:not-in-word \a}
+                            {:in-word \l}
+                            {:correct \o}
+                            {:not-in-word \o}
+                            {:not-in-word \f}]
+                           [{:not-in-word \g}
+                            {:not-in-word \h}
+                            {:correct \o}
+                            {:not-in-word \u}
+                            {:correct \l}]])) z))
 
-  (best-guess (keep (omni-pred
-                      (omni-pred-data
-                      [[{:not-in-word \s}
-                        {:in-word \o}
-                        {:not-in-word \r}
-                        {:not-in-word \e}
-                        {:not-in-word \s}]
-                       [{:not-in-word \a}
-                        {:in-word \l}
-                        {:correct \o}
-                        {:not-in-word \o}
-                        {:not-in-word \f}]
-                       [{:not-in-word \g}
-                        {:not-in-word \h}
-                        {:correct \o}
-                        {:not-in-word \u}
-                        {:correct \l}]])) z))
+  (ranked-guesses (keep (omni-pred
+                         (omni-pred-data
+                          [[{:correct \s}
+                            {:not-in-word \o}
+                            {:in-word \r}
+                            {:not-in-word \e}
+                            {:not-in-word \s}]
+                           [{:correct \s}
+                            {:not-in-word \t}
+                            {:in-word \a}
+                            {:in-word \r}
+                            {:not-in-word \s}]]))
+                        z))
 
-
-(best-guess (keep (omni-pred
-                    (omni-pred-data
-                      [[{:correct \s}
-                        {:not-in-word \o}
-                        {:in-word \r}
-                        {:not-in-word \e}
-                        {:not-in-word \s}]
-                       [{:correct \s}
-                        {:not-in-word \t}
-                        {:in-word \a}
-                        {:in-word \r}
-                        {:not-in-word \s}]]))
-                  z))
-
-
-(best-guess (keep (omni-pred
-                    (omni-pred-data
-                      [(word-response "cares" "??!!!")
-                       (word-response "alack" "!!xxx")]))
-                  z)))
+  (ranked-guesses (keep (omni-pred
+                          (omni-pred-data
+                            [(word-response "cares" "??!!!")
+                             (word-response "alack" "!!xxx")]))
+                        z)))
