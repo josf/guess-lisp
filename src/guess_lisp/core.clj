@@ -1,7 +1,8 @@
 (ns guess-lisp.core
   (:require
    [clojure.java.io :as io]
-   [clojure.set :as set])
+   [clojure.set :as set]
+   [clojure.string :as str])
   (:import
    [java.io BufferedReader StringReader]))
 
@@ -146,6 +147,12 @@
          (sort-by :score))))
 
 
+(defn- presentable-matches
+  [matches word]
+  (concat
+   (mapv (fn [ms]  (apply str  (map (comp str first vals) ms))) matches)
+   [word]))
+
 (defn simulate
   "Runs a simulated game."
   [target-word words matches guess-count]
@@ -155,7 +162,10 @@
           {:failed-after 6 :word target-word :matches matches}
 
           (= 1 (count ranked))
-          {:found (:word (first ranked)) :guesses guess-count}
+          {:found (:word (first ranked)) :guesses (inc guess-count)  :matches (presentable-matches matches target-word)}
+
+           (= target-word (:word (last ranked)))
+          {:found target-word :guesses (inc guess-count)  :matches (presentable-matches matches target-word)}
 
           :else
           (recur target-word filtered-words
@@ -215,4 +225,13 @@
                           (omni-pred-data
                             [(word-response "cares" "??!!!")
                              (word-response "alack" "!!xxx")]))
-                        z)))
+                        z))
+
+  (ranked-guesses (keep (omni-pred
+                          (omni-pred-data
+                            [(word-response "cares" "!!!!!")
+                             (word-response "doily" "!x!!!")
+                             (word-response "mouth" "xxx?!")
+                             ]))
+                        z))
+  )
