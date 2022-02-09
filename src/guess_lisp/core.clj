@@ -24,15 +24,15 @@
                  {:not-in-word g-letter}))
          target-word guess)))
 
-(defn remove-exact-matches-from-exclusions
+(defn remove-required-and-exact-matches-from-exclusions
   "If the guess includes the same letter twice, and only one is present
   in the target word, and one of the guesses is a perfect match, the
   other will be displayed grey, as `not-in-word`. We don't want this
   to cause a miss when comparing sets, so we remove those from the
   word-level `:excluded` set."
-  [{:keys [letters] :as accumulated-matches}]
+  [{:keys [letters required] :as accumulated-matches}]
   (let [matched-letters (set (keep :match letters))]
-    (update accumulated-matches :excluded set/difference matched-letters)))
+    (update accumulated-matches :excluded set/difference matched-letters required)))
 
 (defn omni-pred-data
   "Builds up the filtering data necessary for `omni-pred`. See that
@@ -55,7 +55,7 @@
                                        :else
                                        l))
                                ls m)))
-          remove-exact-matches-from-exclusions))
+          remove-required-and-exact-matches-from-exclusions))
     {:excluded #{}
      :required #{}
      :letters [{:excluded #{}}
