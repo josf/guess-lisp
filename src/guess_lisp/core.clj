@@ -2,7 +2,8 @@
   (:require
    [clojure.java.io :as io]
    [clojure.set :as set]
-   [clojure.string :as str])
+   [clojure.string :as str]
+   [guess-lisp.word-list :as word-list])
   (:import
    [java.io BufferedReader StringReader]))
 
@@ -155,21 +156,34 @@
 
 (defn simulate
   "Runs a simulated game."
-  [target-word words matches guess-count]
-  (let [filtered-words (keep (omni-pred (omni-pred-data matches)) words)
-        ranked (ranked-guesses filtered-words)]
-    (cond (> guess-count 6)
-          {:failed-after 6 :word target-word :matches matches}
+  ([target-word]
+   (simulate target-word word-list/words [] 0))
+  ([target-word words matches guess-count]
+   (let [filtered-words (keep (omni-pred (omni-pred-data matches)) words)
+         ranked (ranked-guesses filtered-words)]
+     (cond (> guess-count 10)
+           {:failed-after 10 :word target-word :matches matches}
 
-          (= 1 (count ranked))
-          {:found (:word (first ranked)) :guesses (inc guess-count)  :matches (presentable-matches matches target-word)}
+           (= 1 (count ranked))
+           {:found (:word (first ranked)) :guesses (inc guess-count)  :matches (presentable-matches matches target-word)}
 
            (= target-word (:word (last ranked)))
-          {:found target-word :guesses (inc guess-count)  :matches (presentable-matches matches target-word)}
+           {:found target-word :guesses (inc guess-count)  :matches (presentable-matches matches target-word)}
 
-          :else
-          (recur target-word filtered-words
-                 (conj matches (compare-words target-word (:word (last ranked)))) (inc guess-count)))))
+           :else
+           (recur target-word filtered-words
+                  (conj matches (compare-words target-word (:word (last ranked)))) (inc guess-count))))))
+
+(defn simulate-with-starting-word
+  [target-word starting-word words matches guess-count]
+  (if (zero? guess-count)
+    (let [new-matches (conj matches (compare-words target-word starting-word))]
+      (if (= target-word starting-word)
+        {:found starting-word :guesses 1 :matches (presentable-matches new-matches target-word)}
+        (recur target-word starting-word words new-matches 1)))
+    (simulate target-word words matches guess-count)))
+
+(simulate-with-starting-word "yield" "pinch" word-list/words [] 0)
 
 
 (defn word-response
@@ -187,6 +201,20 @@
            \? {:in-word letter}))
        word wordle-response))
 
+
+(defn starting-word-simulation
+  [words]
+  (reduce
+   (fn [acc starting-word]
+     (let [scores-for-word (reduce
+                             (fn [score guess-word]
+                               (let [{:keys [guesses]} (simulate-with-starting-word guess-word starting-word words [] 0)]
+                                 (+ score guesses)))
+                             0
+                             words)]
+       (assoc acc starting-word scores-for-word)))
+   {}
+   words))
 
 (comment
   (ranked-guesses (keep (omni-pred
@@ -234,4 +262,11 @@
                              (word-response "mouth" "xxx?!")
                              ]))
                         z))
-  )
+
+  (ranked-guesses (keep (omni-pred
+                        (omni-pred-data
+                          [(word-respones "cares" "!!x?!")]))))
+
+  (ranked-guesses (keep (omni-pred
+                          (omni-pred-data [(word-response "cares" "x!!!!")])))
+                  z))
